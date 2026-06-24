@@ -22,6 +22,10 @@
       <span class="status-dot saved" id="save-dot"></span>
       <span id="save-label">Saved</span>
     </span>
+    <button class="ghost" onclick="exportPage()" aria-label="Export page as HTML">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export
+    </button>
     <button class="ghost" onclick="previewPage()" aria-label="Preview page">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
       Preview
@@ -217,6 +221,8 @@
 <div id="toast" role="status" aria-live="assertive" aria-atomic="true"></div>
 
 <script src="{{ url_for('static', filename='js/model.js') }}"></script>
+<script src="{{ url_for('static', filename='js/preview.js') }}"></script>
+<script src="{{ url_for('static', filename='js/exporter.js') }}"></script>
 <script src="{{ url_for('static', filename='js/editor.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ page.title | e }}</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  color: #1a1917;
+  background: #f5f4f1;
+}
+
+.page-root {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 16px;
+}
+
+.block {
+  background: #ffffff;
+  border-radius: 12px;
+  margin-bottom: 12px;
+  overflow: visible;
+}
+
+.block-canvas {
+  position: relative;
+  padding: 24px;
+  min-height: 80px;
+}
+
+/* Elements are absolutely positioned */
+.el { position: absolute; }
+
+.el p  { font-size: 15px; line-height: 1.7; }
+.el h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.3px; line-height: 1.2; }
+.el hr { border: none; border-top: 1px solid #e0ddd6; width: 100%; }
+
+.btn {
+  display: inline-block;
+  padding: 8px 18px;
+  background: #3b6d11;
+  color: #fff;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 14px;
+  text-decoration: none;
+  transition: background 0.12s;
+}
+.btn:hover { background: #27500a; }
+
+img { max-width: 100%; border-radius: 8px; display: block; }
+
+.img-missing {
+  border: 2px dashed #c8c5bc;
+  border-radius: 8px;
+  padding: 24px;
+  color: #999;
+  font-size: 12px;
+  text-align: center;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  body     { background: #1c1b18; color: #f0ede6; }
+  .block   { background: #252420; }
+  .el hr   { border-color: #38362f; }
+  .btn     { background: #97c459; color: #1c1b18; }
+  .btn:hover { background: #c0dd97; }
+}
+
+/* Mobile — collapse absolute positions into a readable flow */
+@media (max-width: 600px) {
+  .el {
+    position: static !important;
+    width: 100% !important;
+    left: auto !important;
+    top: auto !important;
+    margin-bottom: 12px;
+  }
+  .block-canvas {
+    min-height: unset !important;
+    display: flex;
+    flex-direction: column;
+  }
+}
+</style>
+</head>
+<body>
+<main class="page-root">
+
+{% for block in page.blocks %}
+  {%- set bg      = 'background:' ~ block.background ~ ';' if block.background else '' -%}
+  {%- set min_h   = 'min-height:' ~ block.fixedHeight ~ 'px;' if block.fixedHeight else '' -%}
+  {%- set padding = 'padding:' ~ block.padding ~ ';' if block.padding else 'padding:24px;' -%}
+  {%- set bid     = ' id="' ~ block.id | e ~ '"' if block.id else '' -%}
+
+  <section class="block"{{ bid | safe }} style="{{ bg }}">
+    <div class="block-canvas" style="{{ padding }}{{ min_h }}position:relative;">
+
+      {% for el in block.elements %}
+        {%- set left    = 'left:'    ~ el.x ~ '%;'         if el.x    is not none else '' -%}
+        {%- set top     = 'top:'     ~ el.y ~ 'px;'        if el.y    is not none else '' -%}
+        {%- set width   = 'width:'   ~ el.w ~ '%;'         if el.w    is not none else '' -%}
+        {%- set z       = 'z-index:' ~ el.zIndex ~ ';'     if el.zIndex            else '' -%}
+        {%- set fixed_h = 'height:'  ~ el.fixedH ~ ';'     if el.fixedH            else '' -%}
+
+        {%- set pt = 'padding-top:'    ~ el.padding.top    ~ ';' if el.padding and el.padding.top    else '' -%}
+        {%- set pr = 'padding-right:'  ~ el.padding.right  ~ ';' if el.padding and el.padding.right  else '' -%}
+        {%- set pb = 'padding-bottom:' ~ el.padding.bottom ~ ';' if el.padding and el.padding.bottom else '' -%}
+        {%- set pl = 'padding-left:'   ~ el.padding.left   ~ ';' if el.padding and el.padding.left   else '' -%}
+
+        {%- set mt = 'margin-top:'    ~ el.margin.top    ~ ';' if el.margin and el.margin.top    else '' -%}
+        {%- set mr = 'margin-right:'  ~ el.margin.right  ~ ';' if el.margin and el.margin.right  else '' -%}
+        {%- set mb = 'margin-bottom:' ~ el.margin.bottom ~ ';' if el.margin and el.margin.bottom else '' -%}
+        {%- set ml = 'margin-left:'   ~ el.margin.left   ~ ';' if el.margin and el.margin.left   else '' -%}
+
+        {%- set pos_style = 'position:absolute;' ~ left ~ top ~ width ~ z ~ fixed_h ~ pt ~ pr ~ pb ~ pl ~ mt ~ mr ~ mb ~ ml -%}
+
+        {%- set fs = 'font-size:'   ~ el.style.fontSize   ~ ';' if el.style and el.style.fontSize   else '' -%}
+        {%- set fw = 'font-weight:' ~ el.style.fontWeight ~ ';' if el.style and el.style.fontWeight else '' -%}
+        {%- set fc = 'color:'       ~ el.style.color      ~ ';' if el.style and el.style.color      else '' -%}
+        {%- set inner_style = fs ~ fw ~ fc -%}
+
+        <div class="el el-{{ el.type | e }}" style="{{ pos_style }}">
+          {% if el.type == 'heading' %}
+            <h2{% if inner_style %} style="{{ inner_style }}"{% endif %}>{{ el.content | safe }}</h2>
+
+          {% elif el.type == 'image' %}
+            {% if el.content and el.content.startswith('<img') %}
+              {{ el.content | safe }}
+            {% else %}
+              <div class="img-missing">Image</div>
+            {% endif %}
+
+          {% elif el.type == 'button' %}
+            <a href="{{ el.href | e if el.href else '#' }}"
+               class="btn"
+               {% if inner_style %}style="{{ inner_style }}"{% endif %}>{{ el.content | safe }}</a>
+
+          {% elif el.type == 'divider' %}
+            <hr{% if inner_style %} style="{{ inner_style }}"{% endif %}>
+
+          {% else %}
+            <p{% if inner_style %} style="{{ inner_style }}"{% endif %}>{{ el.content | safe }}</p>
+          {% endif %}
+        </div>
+
+      {% endfor %}
+
+    </div>
+  </section>
+{% endfor %}
+
+</main>
+</body>
+</html>
