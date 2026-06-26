@@ -143,7 +143,7 @@ img { max-width: 100%; border-radius: 8px; display: block; }
                {% if inner_style %}style="{{ inner_style }}"{% endif %}>{{ el.content | safe }}</a>
 
           {% elif el.type == 'divider' %}
-            <hr{% if inner_style %} style="{{ inner_style }}"{% endif %}>
+            <hr {% if inner_style %}style="{{ inner_style }}"{% endif %}>
 
           {% else %}
             <p{% if inner_style %} style="{{ inner_style }}"{% endif %}>{{ el.content | safe }}</p>
