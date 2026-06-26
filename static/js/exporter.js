@@ -1,75 +1,120 @@
 /**
- * exporter.js — MakerThing export module
+ * preview.js — MakerThing live preview module
  *
  * Responsibilities:
- *  - Trigger server-side HTML export download
- *  - Client-side fallback export (inline blob)
- *  - Exposed globals: exportPage()
+ *  - Render current editor state into a sandboxed iframe panel
+ *  - Open a new tab pointing at /preview/<id> for full-page preview
+ *  - Exposed globals: previewPage(), togglePreviewPanel()
+ *
+ * Two preview modes:
+ *  1. Panel preview  — inline iframe that slides in from the right,
+ *                      re-rendered from live editor state (no server round-trip)
+ *  2. Tab preview    — opens /preview/<id> in a new tab using saved server data
  */
 
 'use strict';
 
-// ── Server-side export (primary) ──────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────
+
+let previewPanel  = null;   // the iframe overlay element
+let previewIframe = null;   // the <iframe> inside it
+let panelOpen     = false;
+
+// ── Primary entry point (called by topbar Preview button) ─────────────────────
 
 /**
- * exportPage()
- * Called by the Export button. Hits /api/pages/<id>/export which returns
- * a complete standalone HTML file as an attachment.
+ * previewPage()
+ * If there's a saved page ID, opens a new tab at /preview/<id>.
+ * Otherwise falls back to the inline panel so the user can preview
+ * unsaved work without a server round-trip.
  */
-window.exportPage = async function exportPage() {
-  if (!App.currentPageId) {
-    showToastError('No page loaded to export.');
-    return;
-  }
-
-  // Save first so the export reflects latest content
-  if (App.isDirty) {
-    await savePage();
-  }
-
-  try {
-    const response = await fetch(`/api/pages/${App.currentPageId}/export`);
-
-    if (!response.ok) {
-      throw new Error(`Server returned ${response.status}`);
-    }
-
-    const blob     = await response.blob();
-    const filename = getFilenameFromResponse(response) || 'page.html';
-    triggerDownload(blob, filename);
-
-    showToast('Export downloaded');
-
-  } catch (err) {
-    console.warn('[Exporter] Server export failed, falling back to client export.', err);
-    clientExport();
+window.previewPage = function previewPage() {
+  if (App.currentPageId && !App.isDirty) {
+    window.open('/preview/' + App.currentPageId, '_blank', 'noopener');
+  } else {
+    // Unsaved content — use inline panel
+    openPreviewPanel();
   }
 };
 
-// ── Client-side fallback export ───────────────────────────────────────────────
+// ── Inline panel preview ──────────────────────────────────────────────────────
 
-/**
- * clientExport()
- * Builds a standalone HTML file from the current editor state without
- * hitting the server. Used as fallback if the server export fails.
- */
-function clientExport() {
-  const pageData = typeof serializePage === 'function'
-    ? serializePage()
-    : { title: 'Export', blocks: [] };
+window.togglePreviewPanel = function togglePreviewPanel() {
+  if (panelOpen) closePreviewPanel();
+  else           openPreviewPanel();
+};
 
-  const html = buildStandaloneHtml(pageData);
-  const blob = new Blob([html], { type: 'text/html' });
-  const name = slugify(pageData.title || 'page') + '.html';
-  triggerDownload(blob, name);
-  showToast('Export downloaded (client)');
+function openPreviewPanel() {
+  ensurePanel();
+  renderIntoPanel();
+  previewPanel.classList.add('open');
+  panelOpen = true;
+  document.getElementById('preview-panel-btn')?.setAttribute('aria-pressed', 'true');
 }
 
-// ── HTML builder ──────────────────────────────────────────────────────────────
+function closePreviewPanel() {
+  if (previewPanel) previewPanel.classList.remove('open');
+  panelOpen = false;
+  document.getElementById('preview-panel-btn')?.setAttribute('aria-pressed', 'false');
+}
 
-function buildStandaloneHtml(pageData) {
-  const blocksHtml = (pageData.blocks || []).map(renderBlockToHtml).join('\n');
-  const title      = escapeHtml(pageData.title || 'Exported Page');
+function ensurePanel() {
+  if (previewPanel) return;
+
+  previewPanel = document.createElement('div');
+  previewPanel.id        = 'preview-panel';
+  previewPanel.setAttribute('role', 'dialog');
+  previewPanel.setAttribute('aria-label', 'Page preview');
+  previewPanel.innerHTML = `
+    <div class="preview-panel-header">
+      <span style="font-size:13px;font-weight:600;color:var(--text-muted);">Preview</span>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <button class="ghost icon-btn" id="preview-refresh-btn"
+                onclick="renderIntoPanel()" aria-label="Refresh preview" title="Refresh">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
+        <button class="ghost icon-btn" onclick="closePreviewPanel()" aria-label="Close preview" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <iframe id="preview-iframe" title="Page preview" sandbox="allow-same-origin"></iframe>
+  `;
+
+  document.body.appendChild(previewPanel);
+  previewIframe = document.getElementById('preview-iframe');
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panelOpen) closePreviewPanel();
+  });
+
+  injectPanelStyles();
+}
+
+function renderIntoPanel() {
+  if (!previewIframe) return;
+
+  const pageData = typeof serializePage === 'function'
+    ? serializePage()
+    : { title: '', blocks: [] };
+
+  const html = buildPreviewHtml(pageData);
+
+  // Write into iframe via srcdoc for sandboxing
+  previewIframe.srcdoc = html;
+}
+
+// ── HTML builder (reuses exporter logic, lighter styles) ─────────────────────
+
+function buildPreviewHtml(pageData) {
+  const blocksHtml = (pageData.blocks || []).map(renderBlockToPreviewHtml).join('\n');
+  const title      = escapeHtml(pageData.title || 'Preview');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -78,7 +123,7 @@ function buildStandaloneHtml(pageData) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${title}</title>
 <style>
-${EXPORT_CSS}
+${PREVIEW_CSS}
 </style>
 </head>
 <body>
@@ -89,27 +134,26 @@ ${blocksHtml}
 </html>`;
 }
 
-function renderBlockToHtml(block) {
-  const bg      = block.background ? `background:${escapeAttr(block.background)};` : '';
-  const padding = block.padding    ? `padding:${escapeAttr(block.padding)};`        : '';
-  const minH    = block.fixedHeight? `min-height:${escapeAttr(block.fixedHeight)}px;` : '';
-  const id      = block.id         ? ` id="${escapeAttr(block.id)}"`                : '';
-
-  const elementsHtml = (block.elements || []).map(renderElementToHtml).join('\n');
+function renderBlockToPreviewHtml(block) {
+  const bg      = block.background  ? `background:${escapeAttr(block.background)};` : '';
+  const padding  = block.padding    ? `padding:${escapeAttr(block.padding)};`        : '';
+  const minH     = block.fixedHeight? `min-height:${escapeAttr(block.fixedHeight)}px;` : '';
+  const id       = block.id         ? ` id="${escapeAttr(block.id)}"`                : '';
+  const elements = (block.elements || []).map(renderElementToPreviewHtml).join('\n');
 
   return `<section class="block"${id} style="${bg}">
   <div class="block-canvas" style="${padding}${minH}position:relative;">
-    ${elementsHtml}
+    ${elements}
   </div>
 </section>`;
 }
 
-function renderElementToHtml(el) {
-  const left    = el.x        != null ? `left:${el.x}%;`       : '';
-  const top     = el.y        != null ? `top:${el.y}px;`       : '';
-  const width   = el.w        != null ? `width:${el.w}%;`      : '';
-  const zIndex  = el.zIndex             ? `z-index:${el.zIndex};` : '';
-  const fixedH  = el.fixedH            ? `height:${escapeAttr(el.fixedH)};` : '';
+function renderElementToPreviewHtml(el) {
+  const left   = el.x    != null ? `left:${el.x}%;`        : '';
+  const top    = el.y    != null ? `top:${el.y}px;`        : '';
+  const width  = el.w    != null ? `width:${el.w}%;`       : '';
+  const zIndex = el.zIndex       ? `z-index:${el.zIndex};` : '';
+  const fixedH = el.fixedH       ? `height:${escapeAttr(el.fixedH)};` : '';
 
   const pad = joinStyle({
     'padding-top':    el.padding?.top,
@@ -124,56 +168,48 @@ function renderElementToHtml(el) {
     'margin-left':   el.margin?.left,
   });
 
-  const posStyle = `position:absolute;${left}${top}${width}${zIndex}${fixedH}${pad}${mar}`;
-
+  const posStyle   = `position:absolute;${left}${top}${width}${zIndex}${fixedH}${pad}${mar}`;
   const innerStyle = joinStyle({
     'font-size':   el.style?.fontSize,
     'font-weight': el.style?.fontWeight,
     'color':       el.style?.color,
   });
 
-  const inner = renderInnerHtml(el, innerStyle);
+  const inner = renderInnerPreviewHtml(el, innerStyle);
   return `<div class="el el-${escapeAttr(el.type || 'text')}" style="${posStyle}">${inner}</div>`;
 }
 
-function renderInnerHtml(el, innerStyle) {
+function renderInnerPreviewHtml(el, innerStyle) {
   const s    = innerStyle ? ` style="${innerStyle}"` : '';
   const href = el.href ? escapeAttr(el.href) : '#';
 
   switch (el.type) {
     case 'heading':
       return `<h2${s}>${el.content || ''}</h2>`;
-
     case 'image':
-      // If content is an img tag (from upload), preserve it; else show placeholder text
       if (el.content && el.content.startsWith('<img')) return el.content;
-      return `<p style="color:#999;font-size:13px;">[Image]</p>`;
-
+      return `<div class="img-placeholder">Image</div>`;
     case 'button':
       return `<a href="${href}" class="btn"${s}>${el.content || 'Button'}</a>`;
-
     case 'divider':
       return `<hr${s}>`;
-
     case 'text':
     default:
       return `<p${s}>${el.content || ''}</p>`;
   }
 }
 
-// ── Export CSS (embedded in the downloaded file) ──────────────────────────────
+// ── Preview CSS ───────────────────────────────────────────────────────────────
 
-const EXPORT_CSS = `
+const PREVIEW_CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 15px; color: #1a1917; background: #f5f4f1;
+  padding: 24px 16px;
 }
-.page-root { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
-.block {
-  background: #ffffff; border-radius: 12px;
-  margin-bottom: 12px; overflow: visible;
-}
+.page-root { max-width: 760px; margin: 0 auto; }
+.block { background: #ffffff; border-radius: 12px; margin-bottom: 12px; }
 .block-canvas { position: relative; padding: 24px; min-height: 80px; }
 .el { position: absolute; }
 .el p  { font-size: 15px; line-height: 1.7; }
@@ -186,46 +222,53 @@ body {
 }
 .btn:hover { background: #27500a; }
 img { max-width: 100%; border-radius: 8px; display: block; }
-
+.img-placeholder {
+  border: 2px dashed #c8c5bc; border-radius: 8px;
+  padding: 24px; color: #999; font-size: 12px; text-align: center;
+}
 @media (prefers-color-scheme: dark) {
   body { background: #1c1b18; color: #f0ede6; }
   .block { background: #252420; }
   .el hr { border-color: #38362f; }
 }
-@media (max-width: 600px) {
+@media (max-width: 500px) {
   .el { position: static !important; width: 100% !important; margin-bottom: 12px; }
   .block-canvas { min-height: unset !important; }
 }
 `.trim();
 
+// ── Panel styles (injected once into the editor page) ─────────────────────────
+
+function injectPanelStyles() {
+  if (document.getElementById('preview-panel-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'preview-panel-styles';
+  style.textContent = `
+    #preview-panel {
+      position: fixed; top: 0; right: -520px; width: 500px; height: 100vh;
+      background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      z-index: 500; transition: right 0.25s ease;
+      box-shadow: -4px 0 24px rgba(0,0,0,0.12);
+    }
+    #preview-panel.open { right: 0; }
+    .preview-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #preview-iframe { flex: 1; border: none; background: #f5f4f1; }
+  `;
+  document.head.appendChild(style);
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
-
-function triggerDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a   = document.createElement('a');
-  a.href     = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
-}
-
-function getFilenameFromResponse(response) {
-  const cd = response.headers.get('Content-Disposition') || '';
-  const m  = cd.match(/filename="?([^"]+)"?/);
-  return m ? m[1] : null;
-}
 
 function joinStyle(obj) {
   return Object.entries(obj)
     .filter(([, v]) => v)
     .map(([k, v]) => `${k}:${v}`)
     .join(';') + (Object.values(obj).some(Boolean) ? ';' : '');
-}
-
-function slugify(str) {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
 function escapeHtml(str) {
@@ -238,18 +281,6 @@ function escapeAttr(str) {
   return String(str).replace(/"/g, '&quot;');
 }
 
-function showToast(msg) {
-  const t = document.getElementById('toast');
-  if (!t) return;
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
-}
-
-function showToastError(msg) {
-  const t = document.getElementById('toast');
-  if (!t) return;
-  t.textContent = '⚠ ' + msg;
-  t.style.background = 'var(--danger)';
-  t.classList.add('show');
-  setTimeout(() => { t.classList.remove('show'); t.style.background = ''; }, 3500);
-}
+// Expose closePreviewPanel for the close button inside the panel
+window.closePreviewPanel = closePreviewPanel;
+window.renderIntoPanel   = renderIntoPanel;
