@@ -39,10 +39,17 @@ async function boot() {
   renderPagesList(pages);
 
   // 3. Load first page (or whatever is marked active)
-  const firstPage = pages[0] ?? null;
-  if (firstPage) {
-    await loadPage(firstPage.id);
-  }
+const firstPage = pages[0] ?? null;
+if (firstPage) {
+  await loadPage(firstPage.id);
+} else {
+  // No pages yet — create a default one
+  const newPage = await Model.createPage({ title: 'Home' });
+  App.pages.push(newPage);
+  App.currentPageId = newPage.id;
+  renderPagesList(App.pages);
+  setSaveStatus('saved');
+}
 
   // 4. Wire up topbar save / preview / publish
   wireTopbar();
