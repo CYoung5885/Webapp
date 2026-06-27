@@ -706,11 +706,31 @@ window.addBlock = function addBlock(type) {
 
 window.deleteBlock = function deleteBlock(el) {
   const type = el.dataset.blockType || 'block';
-  if (!confirm('Delete this ' + type + ' block?')) return;
+  const btn  = el.querySelector('.block-toolbar button.danger');
+
+  if (!btn._confirming) {
+    btn._confirming = true;
+    const original  = btn.innerHTML;
+    btn.innerHTML   = 'Sure?';
+    btn.style.width = 'auto';
+    btn.style.padding = '4px 8px';
+    btn.style.fontSize = '11px';
+
+    // Reset if user clicks away
+    const reset = () => {
+      btn._confirming   = false;
+      btn.innerHTML     = original;
+      btn.style.width   = '';
+      btn.style.padding = '';
+      btn.style.fontSize = '';
+      document.removeEventListener('click', reset);
+    };
+    setTimeout(() => document.addEventListener('click', reset), 0);
+    return;
+  }
 
   const prev = el.previousElementSibling;
   if (prev?.classList.contains('drop-zone')) prev.remove();
-
   el.remove();
 
   selectedBlock = null;
